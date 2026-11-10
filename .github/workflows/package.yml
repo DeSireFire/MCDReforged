@@ -6,112 +6,359 @@ on:
       - ".github/**"
       - "mcdreforged/**"
       - "tests/**"
+      - "docker/**"
       - "*.py"
+
+env:
+  IS_RELEASE: ${{ startsWith(github.ref, 'refs/tags/v') }}
 
 jobs:
   test:
-    runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        python-version: [ 3.6, 3.7, 3.8, 3.9 ]
-    name: Test with python ${{ matrix.python-version }}
-
-    steps:
-      - uses: actions/checkout@v2
-      - name: Setup python
-        uses: actions/setup-python@v2
-        with:
-          python-version: ${{ matrix.python-version }}
-
-      - uses: actions/cache@v2
-        with:
-          path: ~/.cache/pip
-          key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements.txt') }}
-          restore-keys: |
-            ${{ runner.os }}-pip-
-
-      - name: Install dependencies
-        run: |
-          python -m pip install --upgrade pip
-          pip install -r requirements.txt
-
-      - name: Test with pytest
-        run: |
-          pip install pytest
-          pip install pytest-cov
-          pytest tests --doctest-modules --junitxml=junit/test-results.xml --cov=com --cov-report=xml --cov-report=html
+    uses: ./.github/workflows/test.yml
 
   assemble:
-    runs-on: ubuntu-latest
-    name: Assemble a dev source compressed file
     needs: test
+    uses: ./.github/workflows/assemble.yml
 
-    steps:
-    - uses: actions/checkout@v2
-    - name: Create Dev Build
-      run: |
-        mkdir MCDReforged
-        mv * MCDReforged || true
-        cd MCDReforged
-        rm -rf .git tests
-        rm -f .gitignore logo_long.png setup.py MANIFEST.in *.md
-        mkdir server
-        mkdir config
-        rm -f plugins/*
-        rm -rf docs docs_prev
-        cd ..
-        zip -r MCDReforged-dev.zip ./MCDReforged
-
-    - uses: actions/upload-artifact@v2
-      with:
-        name: MCDReforged dev source for ${{ github.sha }}
-        path: MCDReforged-dev.zip
-
-  pypi-upload:
+  pypi_upload:
     runs-on: ubuntu-latest
-    name: Make and upload a package to (test) pypi
+    name: Publish package to (Test)PyPI
     needs: test
     if: github.event_name == 'push'
 
-    steps:
-    - uses: actions/checkout@v2
-    - name: Setup python
-      uses: actions/setup-python@v2
-      with:
-        python-version: 3.6
+    # https://docs.pypi.org/trusted-publishers/using-a-publisher/
+    environment: pypi_release
+    permissions:
+      id-token: write
 
-    - uses: actions/cache@v2
+    steps:
+    - uses: actions/checkout@v7
+    - name: Setup python
+      uses: actions/setup-python@v7
       with:
-        path: ~/.cache/pip
-        key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements.txt') }}
-        restore-keys: |
-          ${{ runner.os }}-pip-
+        python-version: 3.13
+        cache: pip
 
     - name: Install dependencies
       run: |
-        python -m pip install --upgrade pip
-        pip install setuptools wheel
+        python -m pip install -U pip
+        pip install build -r requirements.txt
+
+    - name: Modify and get version information
+      id: version
+      run: |
+        version_file=mcdreforged/constants/core_constant.py
+        if [ "$IS_RELEASE" != "true" ]; then
+          ci_build_num=$GITHUB_RUN_NUMBER
+          sed -i "s/^VERSION\s*=\s*'\([^']*\)'/VERSION = '\1+dev.${ci_build_num}'/" "$version_file"
+          sed -i "s/^VERSION_PYPI\s*=\s*'\([^']*\)'/VERSION_PYPI = '\1.dev${ci_build_num}'/" "$version_file"
+        fi
+        
+        python - <<EOF
+        import os
+        from mcdreforged.constants import core_constant as cc
+        print(f'{cc.VERSION=!r} {cc.VERSION_PYPI=!r}')
+        with open(os.environ['GITHUB_OUTPUT'], 'a') as f:
+          f.write('mcdr_version={}\n'.format(cc.VERSION))
+          f.write('pypi_version={}\n'.format(cc.VERSION_PYPI))
+        EOF
 
     - name: Create distribution
-      run: |
-        python setup.py sdist bdist_wheel
+      run: python -m build
 
-    - name: Publish distribution to Test PyPI
-      if: github.event_name == 'push'
-      uses: pypa/gh-action-pypi-publish@master
+    - name: Validate distribution version
+      run: |
+        pypi_version=${{ steps.version.outputs.pypi_version }}
+        whl_path=dist/mcdreforged-${pypi_version}-py3-none-any.whl
+        echo whl_path=${whl_path}
+  
+        if [ ! -f "$whl_path" ]; then
+          echo "Error: whl $whl_path does not exist"
+          ls -l dist
+          exit 1
+        fi
+
+    - name: Check version consistency
+      if: env.IS_RELEASE == 'true'
+      uses: actions/github-script@v9
       with:
-        user: __token__
-        password: ${{ secrets.TEST_PYPI_API_TOKEN }}
-        repository_url: https://test.pypi.org/legacy/
+        script: |
+          // "refs/tags/v1.2.3" -> "1.2.3"
+          const gitTag = process.env.GITHUB_REF.split('refs/tags/')[1] || ''
+          const tagVersion = gitTag.replace(/^v/, '')
+          
+          const mcdrVersion = process.env.MCDR_VERSION
+          const pypiVersion = process.env.PYPI_VERSION
+          const isStableRelease = process.env.IS_RELEASE === 'true' && /^[0-9.]+$/.test(tagVersion)
+          
+          console.log(`tagVersion: ${tagVersion}`)
+          console.log(`mcdrVersion: ${mcdrVersion}`)
+          console.log(`pypiVersion: ${pypiVersion}`)
+          console.log(`isStableRelease: ${isStableRelease}`)
+          
+          if (tagVersion !== mcdrVersion) {
+            core.setFailed(`tagVersion ${tagVersion} != mcdrVersion ${mcdrVersion}`)
+            return
+          }
+          if (isStableRelease && mcdrVersion !== pypiVersion) {
+            core.setFailed(`mcdrVersion ${mcdrVersion} != pypiVersion ${pypiVersion}, and it's a stable release`)
+            return
+          }
+      env:
+        GITHUB_REF: ${{ github.ref }}
+        MCDR_VERSION: ${{ steps.version.outputs.mcdr_version }}
+        PYPI_VERSION: ${{ steps.version.outputs.pypi_version }}
+
+    - name: Publish distribution to TestPyPI
+      uses: pypa/gh-action-pypi-publish@release/v1
+      with:
+        repository-url: https://test.pypi.org/legacy/
+        # Fix running the gh-action-pypi-publish action twice in one job causing an error on the 2nd run:
+        # "InvalidDistribution: Unknown distribution format: 'mcdreforged-2.14.0a2-py3-none-any.whl.publish.attestation'"
+        # See also:
+        # https://github.com/pypa/gh-action-pypi-publish/issues/283
+        # https://github.com/pypa/twine/commit/dd613569856f1dd128040f197948b5c48eb8dd43
+        attestations: false
 
     - name: Publish distribution to PyPI
-      if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
-      uses: pypa/gh-action-pypi-publish@master
-      with:
-        user: __token__
-        password: ${{ secrets.PYPI_API_TOKEN }}
+      if: env.IS_RELEASE == 'true'
+      uses: pypa/gh-action-pypi-publish@release/v1
 
-    - uses: actions/upload-artifact@v2
+    - uses: actions/upload-artifact@v7
       with:
         name: MCDReforged package distribution for ${{ github.sha }}
         path: dist/
+
+    - name: Report
+      run: |
+        version=${{ steps.version.outputs.pypi_version }}
+        echo -e "## Version info\n" >> $GITHUB_STEP_SUMMARY
+        echo -e "- MCDR version: \`${{ steps.version.outputs.mcdr_version }}\`" >> $GITHUB_STEP_SUMMARY
+        echo -e "- PyPI version: \`${{ steps.version.outputs.pypi_version }}\`" >> $GITHUB_STEP_SUMMARY
+        echo -e "" >> $GITHUB_STEP_SUMMARY
+  
+        echo -e "## PyPI package urls\n" >> $GITHUB_STEP_SUMMARY
+        if [ "$IS_RELEASE" = "true" ]; then
+          echo -e "### PyPI\n" >> $GITHUB_STEP_SUMMARY
+          echo -e "https://pypi.org/project/mcdreforged/${version}/\n" >> $GITHUB_STEP_SUMMARY
+          echo -e "\`\`\`\npip install mcdreforged==$version\n\`\`\`\n" >> $GITHUB_STEP_SUMMARY
+        fi
+        echo -e "### Test PyPI\n" >> $GITHUB_STEP_SUMMARY
+        echo -e "https://test.pypi.org/project/mcdreforged/$version/\n" >> $GITHUB_STEP_SUMMARY
+        echo -e "\`\`\`\npip install mcdreforged==$version -i https://test.pypi.org/simple\n\`\`\`\n" >> $GITHUB_STEP_SUMMARY
+
+    outputs:
+      mcdr_version: ${{ steps.version.outputs.mcdr_version }}
+      pypi_version: ${{ steps.version.outputs.pypi_version }}
+
+  image:
+    name: Docker image (py${{ matrix.python }}${{ matrix.slim == 'true' && ', slim' || '' }})
+    runs-on: ubuntu-latest
+    needs: pypi_upload
+    if: startsWith(github.ref, 'refs/tags/v') || github.ref == 'refs/heads/master' || github.ref == 'refs/heads/dev'
+    strategy:
+      matrix:
+        python: ['3.12', '3.13', '3.14']  # last 3 minor versions
+        slim: ['false', 'true']
+
+    steps:
+    - uses: actions/checkout@v7
+
+    - name: Prepare build config
+      uses: actions/github-script@v9
+      id: config
+      with:
+        script: |
+          const version = process.env.VERSION
+          const slim = process.env.SLIM
+          const python = process.env.PYTHON
+          const isRelease = process.env.IS_RELEASE === 'true'
+          const isStableRelease = isRelease && /^[0-9.]+$/.test(version)
+          const defaultPythonVersion = '3.13'
+
+          if (isRelease) {
+            core.setOutput('pypi_simple_url', 'https://pypi.org/simple')
+          } else {
+            core.setOutput('pypi_simple_url', 'https://test.pypi.org/simple')
+          }
+          
+          let metaTagsBase = [
+            'type=ref,event=branch,suffix=',
+            'type=semver,pattern={{version}},suffix=',
+            'type=semver,pattern={{major}}.{{minor}},suffix=',
+          ]
+          let metaTagsLatest = []
+          let suffixes = [`-py${python}`]  // will be appended at the end of all metaTagsBase
+
+          if (python === defaultPythonVersion) {
+            suffixes.push('')  // add a no-python suffixes
+            if (isStableRelease) {
+              metaTagsLatest.push('latest')  // stable release only
+            }
+          }
+          let metaTagsAll = suffixes.flatMap(suffix => metaTagsBase.map(t => t + suffix)).concat(metaTagsLatest)
+          console.log(`metaTagsAll 1: ${JSON.stringify(metaTagsAll)}`)
+          
+          if (slim === 'true') {
+            core.setOutput('platforms', 'linux/amd64')
+            core.setOutput('base_image_tag', `${python}-slim`)
+            metaTagsAll = metaTagsAll.map(item => item + '-slim');
+          } else {
+            core.setOutput('platforms', 'linux/amd64,linux/arm64')
+            core.setOutput('base_image_tag', python)
+          }
+          console.log(`suffixes: ${JSON.stringify(suffixes)}`)
+          
+          core.setOutput('tags', metaTagsAll.join('\n'))
+          console.log(`metaTagsAll final: ${JSON.stringify(metaTagsAll)}`)
+      env:
+        VERSION: ${{ needs.pypi_upload.outputs.mcdr_version }}
+        SLIM: ${{ matrix.slim }}
+        PYTHON: ${{ matrix.python }}
+
+    - name: Set up QEMU
+      uses: docker/setup-qemu-action@v4
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v4
+
+    # Pull image before the docker login step, to bypass the DockerHub token's image pull rate limit
+    - name: Pre-pull prepare
+      run: |
+        grep '^FROM ' docker/Dockerfile | envsubst > docker/Dockerfile.prepull
+        cat docker/Dockerfile.prepull
+      env:
+        BASE_IMAGE_TAG: ${{ steps.config.outputs.base_image_tag }}
+
+    - name: Pre-pull
+      uses: docker/build-push-action@v7
+      with:
+        platforms: ${{ steps.config.outputs.platforms }}
+        file: docker/Dockerfile.prepull
+        context: docker
+        tags: mcdr-prepull:latest
+        cache-from: type=gha
+
+    - name: Pre-pull cleanup
+      run: rm -f docker/Dockerfile.prepull
+
+    - name: Login to Docker Hub
+      uses: docker/login-action@v4
+      with:
+        username: ${{ secrets.DOCKERHUB_USERNAME }}
+        password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+    - name: Docker meta
+      id: meta
+      uses: docker/metadata-action@v6
+      with:
+        images: mcdreforged/mcdreforged
+        tags: ${{ steps.config.outputs.tags }}
+        flavor: latest=false
+
+    # this required to make Wandalen/wretry.action@v3 work correctly
+    - name: Patch docker meta
+      uses: actions/github-script@v9
+      id: meta_patched
+      with:
+        script: |-
+          core.setOutput('tags', process.env.META_TAGS.replace(/\n/g, '\\n'))
+          core.setOutput('labels', process.env.META_LABELS.replace(/\n/g, '\\n'))
+      env:
+        META_TAGS: ${{ steps.meta.outputs.tags }}
+        META_LABELS: ${{ steps.meta.outputs.labels }}
+
+    - uses: actions/setup-python@v7
+      with:
+        python-version: ${{ matrix.python }}
+    - name: Wait for PyPI index update
+      run: |
+        start_time=$(date +%s)
+        pip_cmd="pip3 install mcdreforged==${VERSION} -i ${PYPI_SIMPLE_URL} --dry-run --ignore-installed --no-deps --no-cache-dir"
+        echo pip_cmd=$pip_cmd
+        while true; do
+          if $pip_cmd; then
+            echo "Version ${VERSION} exists on ${PYPI_SIMPLE_URL}, exit"
+            break
+          else
+            current_time=$(date +%s)
+            elapsed_time=$((current_time - start_time))
+            if [ "$elapsed_time" -ge 600 ]; then
+              echo "Failed to find package version ${VERSION} on ${PYPI_SIMPLE_URL} after 10 minutes"
+              exit 1
+            fi
+            echo "Version ${VERSION} not exist on ${PYPI_SIMPLE_URL}. Checking again in 5 seconds"
+            sleep 5
+          fi
+        done
+      env:
+        VERSION: ${{ needs.pypi_upload.outputs.pypi_version }}
+        PYPI_SIMPLE_URL: ${{ steps.config.outputs.pypi_simple_url }}
+
+    - name: Build and push
+      id: build
+      uses: Wandalen/wretry.action@v3
+      with:
+        action: docker/build-push-action@v7
+        with: |
+          platforms: ${{ steps.config.outputs.platforms }}
+          push: true
+          file: docker/Dockerfile
+          context: docker
+          tags: "${{ steps.meta_patched.outputs.tags }}"
+          labels: "${{ steps.meta_patched.outputs.labels }}"
+          build-args: |
+            BASE_IMAGE_TAG=${{ steps.config.outputs.base_image_tag }}
+            MCDR_VERSION_REQUIREMENT=${{ needs.pypi_upload.outputs.pypi_version }}
+            PYPI_INDEX=${{ steps.config.outputs.pypi_simple_url }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+        attempt_limit: 3
+        attempt_delay: 10
+
+    - name: Report image build information
+      run: |
+        cat << SUMMARY_EOF >> $GITHUB_STEP_SUMMARY
+        ### Build args
+        
+        ~~~
+        BASE_IMAGE_TAG=${{ steps.config.outputs.base_image_tag }}
+        MCDR_VERSION_REQUIREMENT=${{ needs.pypi_upload.outputs.pypi_version }}
+        PYPI_INDEX=${{ steps.config.outputs.pypi_simple_url }}
+        ~~~
+        
+        ### Image tags
+        
+        ~~~
+        ${{ steps.meta.outputs.tags }}
+        ~~~
+        SUMMARY_EOF
+
+    - name: Prepare extended image build workflow arguments
+      uses: actions/github-script@v9
+      id: dispatch_args
+      with:
+        script: |-
+          let tags = process.env.TAGS.trim().
+              split('\n').
+              map(t => t.substring(t.lastIndexOf(':') + 1)).
+              join(',')
+          const payload = {
+            'base_image_tags': tags,
+            'digest': process.env.DIGEST,
+            'git_ref': process.env.GITHUB_REF,
+            'run_number': process.env.GITHUB_RUN_NUMBER,
+          }
+          console.log('payload:', payload)
+          core.setOutput('payload', JSON.stringify(payload))
+      env:
+        TAGS: ${{ steps.meta.outputs.tags }}
+        DIGEST: ${{ fromJSON( steps.build.outputs.outputs ).digest }}
+
+    - name: Trigger extended image builds
+      if: startsWith(github.ref, 'refs/tags/v')
+      uses: peter-evans/repository-dispatch@v4
+      with:
+        token: ${{ secrets.REPOSITORY_DISPATCH_PAT }}
+        repository: MCDReforged/docker
+        event-type: trigger-workflow
+        client-payload: ${{ steps.dispatch_args.outputs.payload }}

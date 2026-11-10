@@ -1,143 +1,89 @@
-import json
-import os
 import sys
-from argparse import ArgumentParser
-from typing import Optional
-from zipfile import ZipFile, ZIP_DEFLATED
+from argparse import ArgumentParser, ArgumentDefaultsHelpFormatter
+from typing import cast
 
-from mcdreforged.plugin.meta.metadata import Metadata
-
-try:
-	from mcdreforged.constants import core_constant, plugin_constant
-	from mcdreforged.mcdr_server import MCDReforgedServer
-except ModuleNotFoundError:
-	print('It seems that you have not installed all require modules')
-	raise
-
-
-def environment_check():
-	python_version = sys.version_info.major + sys.version_info.minor * 0.1
-	if python_version < 3.6:
-		print('Python 3.6+ is needed')
-		raise Exception('Python version {} is too old'.format(python_version))
+from mcdreforged.cli import cmd_pim
+from mcdreforged.cli.cmd_gendefault import generate_default_stuffs
+from mcdreforged.cli.cmd_init import initialize_environment
+from mcdreforged.cli.cmd_pack import make_packed_plugin, PackArgs
+from mcdreforged.cli.cmd_reformat_config import reformat_config
+from mcdreforged.cli.cmd_run import run_mcdr
+from mcdreforged.cli.cmd_version import show_version
+from mcdreforged.constants import core_constant
+from mcdreforged.mcdr_server_args import MCDReforgedServerArgs
 
 
-def entry_point():
-	environment_check()
+def cli_main():
 	if len(sys.argv) == 1:
-		run_mcdr()
+		run_mcdr(MCDReforgedServerArgs())
 		return
 
 	parser = ArgumentParser(
-		prog=core_constant.PACKAGE_NAME,
+		prog=core_constant.CLI_COMMAND,
 		description='{} CLI'.format(core_constant.NAME),
+		formatter_class=ArgumentDefaultsHelpFormatter,
 	)
 	parser.add_argument('-q', '--quiet', help='Disable CLI output', action='store_true')
-	subparsers = parser.add_subparsers(title='Command', help='Available commands', dest='subparser_name')
+	parser.add_argument('-V', '--version', help='Print {} version and exit'.format(core_constant.NAME), action='store_true')
+	subparsers = parser.add_subparsers(title='Command', help='Available commands', dest='command')
 
-	subparsers.add_parser('start', help='Start {}'.format(core_constant.NAME))
-	subparsers.add_parser('init', help='Prepare the working environment of {}. Create commonly used folders and generate default configure and permission files'.format(core_constant.NAME))
-	subparsers.add_parser('gendefault', help='Generate default configure and permission files at current working directory. Existed files will be overwritten')
+	def add_config_permission_path_args(p: ArgumentParser):
+		p.add_argument('--config', metavar='CONFIG_FILE', help='Path to the MCDReforged configuration file', default=core_constant.CONFIG_FILE_PATH)
+		p.add_argument('--permission', metavar='PERMISSION_FILE', help='Path to the MCDReforged permission file', default=core_constant.PERMISSION_FILE_PATH)
 
-	parser_pack = subparsers.add_parser('pack', help='Pack plugin files into a {} plugin'.format(plugin_constant.PACKED_PLUGIN_FILE_SUFFIX))
-	parser_pack.add_argument('-i', '--input', help='The input directory which the plugin is in, default: current directory', default='.')
-	parser_pack.add_argument('-o', '--output', help='The output directory to store the zipped plugin, default: current directory', default='.')
-	parser_pack.add_argument('-n', '--name', help='A specific name to the output zipped plugin file. If not given the metadata specific name or a default one will be used', default=None)
+	parser_gendefault = subparsers.add_parser('gen-default', aliases=['gendefault'], help='Generate default configuration and permission files in the current working directory. Overwrites existing files', formatter_class=ArgumentDefaultsHelpFormatter)
+	add_config_permission_path_args(parser_gendefault)
 
-	result = parser.parse_args()
-	quiet = result.quiet
+	parser_init = subparsers.add_parser('init', help='Prepare the {} working environment: create common folders, generate default configuration and permission files'.format(core_constant.NAME), formatter_class=ArgumentDefaultsHelpFormatter)
+	add_config_permission_path_args(parser_init)
 
-	if result.subparser_name == 'start':
-		run_mcdr()
-	elif result.subparser_name == 'init':
-		initialize_environment()
-	elif result.subparser_name == 'gendefault':
-		generate_default_stuffs()
-	elif result.subparser_name == 'pack':
-		make_packed_plugin(result.input, result.output, result.name, quiet=quiet)
+	parser_pack = subparsers.add_parser('pack', help='Pack plugin files into a packed plugin', formatter_class=ArgumentDefaultsHelpFormatter)
+	parser_pack.add_argument('-i', '--input', help='The input directory which the plugin is in', default='.')
+	parser_pack.add_argument('-o', '--output', help='The output directory to store the zipped plugin', default='.')
+	parser_pack.add_argument('-n', '--name', help='A specific name for the output zipped plugin file. If not provided, the metadata-specific name or a default name will be used', default=None)
+	parser_pack.add_argument('--ignore-patterns', nargs='+', metavar='IGNORE_PATTERN', help='A list of gitignore-like patterns specifying files and directories to ignore during plugin packing, relative to the --input path. Overrides values from --ignore-file', default=[])
+	parser_pack.add_argument('--ignore-file', help='The path to a UTF-8-encoded gitignore-like file whose contents are used as the --ignore-patterns parameter. The file path and patterns must be relative to the --input path', default='.gitignore')
+	parser_pack.add_argument('--shebang', help='Add a "#!"-prefixed shebang line to the packed plugin, making it executable on POSIX. By default, no shebang line is added. Example: --shebang "/usr/bin/env python3"')
 
+	parser_pim = cmd_pim.create(subparsers.add_parser)
 
-def run_mcdr():
-	print('{} {} is starting up'.format(core_constant.NAME, core_constant.VERSION))
-	print('{} is open source, u can find it here: {}'.format(core_constant.NAME, core_constant.GITHUB_URL))
-	try:
-		mcdreforged_server = MCDReforgedServer()
-	except:
-		print('Fail to initialize {}'.format(core_constant.NAME_SHORT))
-		raise
-	else:
-		if mcdreforged_server.is_initialized():
-			mcdreforged_server.start()
-		else:
-			# If it's not initialized, config file or permission file is missing
-			# Just dont do anything to let the user to check the files
-			pass
+	parser_rc = subparsers.add_parser('reformat-config', help='Reformat the MCDReforged configuration file', formatter_class=ArgumentDefaultsHelpFormatter)
+	parser_rc.add_argument('-i', '--input', required=True, help='The configuration file of MCDReforged to be reformatted')
+	parser_rc.add_argument('-o', '--output', help='Path to the reformatted configuration file. If not provided, output to the input file')
 
+	parser_start = subparsers.add_parser('start', help='Launch {}'.format(core_constant.NAME), formatter_class=ArgumentDefaultsHelpFormatter)
+	parser_start.add_argument('--auto-init', action='store_true', help='Automatically initialize the working environment if needed')
+	parser_start.add_argument('--no-server-start', action='store_true', help='Do not start the server on MCDR startup')
+	add_config_permission_path_args(parser_start)
 
-def initialize_environment():
-	MCDReforgedServer(initialize_environment=True)
+	args = parser.parse_args()
 
-
-def generate_default_stuffs():
-	MCDReforgedServer(generate_default_only=True)
-
-
-def make_packed_plugin(input_dir: str, output_dir: str, file_name: Optional[str], *, quiet: bool = False):
-	writeln = print if not quiet else lambda *args, **kwargs: None
-
-	if not os.path.isdir(input_dir):
-		writeln('Invalid input directory {}'.format(input_dir))
+	if args.version:
+		show_version(quiet=args.quiet)
 		return
-	if not os.path.isdir(output_dir):
-		os.makedirs(output_dir)
 
-	meta_file_path = os.path.join(input_dir, plugin_constant.PLUGIN_META_FILE)
-	req_file_path = os.path.join(input_dir, plugin_constant.PLUGIN_REQUIREMENTS_FILE)
-	if not os.path.isfile(meta_file_path):
-		writeln('Plugin metadata file {} not found'.format(meta_file_path))
-		return
-	try:
-		with open(meta_file_path, encoding='utf8') as meta_file:
-			meta_dict = json.load(meta_file)  # type: dict
-		assert isinstance(meta_dict, dict)
-		meta = Metadata(meta_dict)
-	except Exception as e:
-		writeln('Fail to load plugin metadata from {}: {}'.format(meta_file_path, e))
-		return
-	writeln('Plugin ID: {}'.format(meta.id))
-	writeln('Plugin version: {}'.format(meta.version))
-	if file_name is None:
-		file_name = meta.archive_name
-	if file_name is None:
-		file_name = '{}-v{}'.format(meta.name.replace(' ', '') or meta.id, meta.version)
-	file_name = file_name.format(id=meta.id, version=meta.version) + plugin_constant.PACKED_PLUGIN_FILE_SUFFIX
-
-	def write(base_path: str, *, directory_only: bool):
-		if os.path.isdir(base_path):
-			dir_arc = os.path.basename(base_path)
-			zip_file.write(base_path, arcname=dir_arc)
-			writeln('Creating directory: {} -> {}'.format(base_path, dir_arc))
-			for dir_path, dir_names, file_names in os.walk(base_path):
-				if os.path.basename(dir_path) == '__pycache__':
-					continue
-				for file_name_ in file_names + dir_names:
-					full_path = os.path.join(dir_path, file_name_)
-					if os.path.isdir(full_path) and os.path.basename(full_path) == '__pycache__':
-						continue
-					arc_name = os.path.join(os.path.basename(base_path), full_path.replace(base_path, '', 1).lstrip(os.sep))
-					zip_file.write(full_path, arcname=arc_name)
-					writeln('  Writing: {} -> {}'.format(full_path, arc_name))
-		elif os.path.isfile(base_path) and not directory_only:
-			arc_name = os.path.basename(base_path)
-			zip_file.write(base_path, arcname=arc_name)
-			writeln('Writing single file: {} -> {}'.format(base_path, arc_name))
-
-	writeln('Packing plugin "{}" into "{}" ...'.format(meta.id, file_name))
-	with ZipFile(os.path.join(output_dir, file_name), 'w', ZIP_DEFLATED) as zip_file:
-		write(meta_file_path, directory_only=False)  # metadata
-		write(req_file_path, directory_only=False)  # requirement
-		write(os.path.join(input_dir, meta.id), directory_only=True)  # source module
-		for resource_path in meta.resources:  # resources
-			write(os.path.join(input_dir, resource_path), directory_only=False)
-
-	writeln('Done')
+	elif args.command == 'gendefault':
+		generate_default_stuffs(
+			config_file_path=args.config,
+			permission_file_path=args.permission,
+			quiet=args.quiet,
+		)
+	elif args.command == 'init':
+		initialize_environment(
+			config_file_path=args.config,
+			permission_file_path=args.permission,
+			quiet=args.quiet,
+		)
+	elif args.command == 'pack':
+		make_packed_plugin(cast(PackArgs, args), quiet=args.quiet)
+	elif args.command == 'pim':
+		cmd_pim.entry(parser_pim, args)
+	elif args.command == 'reformat-config':
+		reformat_config(args.input, args.output)
+	elif args.command == 'start':
+		run_mcdr(MCDReforgedServerArgs(
+			auto_init=args.auto_init,
+			no_server_start=args.no_server_start,
+			config_file_path=args.config,
+			permission_file_path=args.permission,
+		))

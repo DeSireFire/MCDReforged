@@ -1,207 +1,136 @@
+import functools
 import re
 import time
-from typing import Optional, Any, Union, Iterable
+from abc import ABC
+from typing import List, Union, Iterable
 
-from parse import parse
+import parse
+from typing_extensions import override
 
-from mcdreforged.info import InfoSource, Info
-from mcdreforged.utils import string_util
-
-'''
-AbstractServerHandler
- ├─ BasicHandler
- ├─ VanillaHandler
- │   ├─ BukkitHandler
- │   │   ├─ Bukkit14Handler
- │   │   └─ CatServerHandler
- │   ├─ ForgeHandler
- │   └─ Beta18Handler
- └─ BungeecordHandler
-     └─ WaterfallHandler
-'''
+from mcdreforged.handler.server_handler import ServerHandler
+from mcdreforged.info_reactor.info import InfoSource, Info
+from mcdreforged.utils import string_utils
 
 
-class AbstractServerHandler:
-	# ---------------------
-	#   Basic Information
-	# ---------------------
-
+class AbstractServerHandler(ServerHandler, ABC):
+	"""
+	The abstract base class for server handler, with some common implementations
+	"""
+	@override
 	def get_name(self) -> str:
-		return string_util.hump_to_underline(type(self).__name__)
+		return string_utils.hump_to_underline(type(self).__name__)
 
-	# ------------------
-	#   Server control
-	# ------------------
-
-	def get_stop_command(self) -> str:
-		"""
-		The command to stop the server
-		"""
-		raise NotImplementedError()
-
-	def get_send_message_command(self, target: str, message: Any) -> Optional[str]:
-		"""
-		The command to send a message to a target
-		"""
-		raise NotImplementedError()
-
-	def get_broadcast_message_command(self, message: Any) -> Optional[str]:
-		"""
-		The command to broadcast a message in the server
-		"""
-		raise NotImplementedError()
-
-	# -------------------------
-	#   Server output parsing
-	# -------------------------
-
+	@override
 	def pre_parse_server_stdout(self, text: str) -> str:
-		"""
-		Remove useless / annoying things like control characters in the text before parse
-
-		:param str text: A line of the server stdout to be parsed
-		:rtype: str
-		"""
 		return text
 
-	@classmethod
-	def parse_console_command(cls, text: str) -> Info:
-		"""
-		Base parsing, returns an almost un-parsed Info instance
-		Don't use this unless
-
-		:param str text: A line of the server stdout to be parsed
-		:return: An Info instance
-		:rtype: Info
-		"""
+	@override
+	def parse_console_command(self, text: str) -> Info:
 		if type(text) is not str:
 			raise TypeError('The text to parse should be a string')
-		result = Info()
-		result.raw_content = text
+		result = Info(InfoSource.CONSOLE, text)
 		t = time.localtime(time.time())
 		result.hour = t.tm_hour
 		result.min = t.tm_min
 		result.sec = t.tm_sec
 		result.content = text
-		result.source = InfoSource.CONSOLE
 		return result
 
 	@classmethod
 	def _get_server_stdout_raw_result(cls, text: str) -> Info:
 		"""
-		This is a raw parsing, returns an almost un-parsed Info instance
-		Use as the first step of the parsing process, or as the return value if you give up parsing this text
+		This method does a raw parsing and returns an almost un-parsed :class:`~mcdreforged.info_reactor.info.Info` object
+
+		Use as the first step of the parsing process, or as the parsing result if you give up parsing this text
+
+		:meta public:
 		"""
 		if type(text) is not str:
 			raise TypeError('The text to parse should be a string')
-		result = Info()
-		result.source = InfoSource.SERVER
-		result.raw_content = text
-		result.content = string_util.clean_console_color_code(text)
+		result = Info(InfoSource.SERVER, text)
+		result.content = string_utils.clean_console_color_code(text)
 		return result
 
 	@classmethod
-	def get_content_parsing_formatter(cls) -> Union[str, Iterable[str]]:
+	def get_content_parsing_formatter(cls) -> Union[str, Iterable[str], re.Pattern, Iterable[re.Pattern]]:
 		"""
-		Return a str or a str collection that is used in method _content_parse for parsing
+		Return a :external:class:`re.Pattern` or an Iterable of :external:class:`re.Pattern` iterable
+		that is used in method :meth:`_content_parse` for parsing
+
+		These regex patterns are supposed to contain at least the following fields:
+
+		- ``hour``
+		- ``min``
+		- ``sec``
+		- ``logging``
+		- ``content``
+
+		The return value of the first succeeded :external:meth:`re.Pattern.fullmatch` call will be used
+		for filling fields of the :class:`~mcdreforged.info_reactor.info.Info` object
+
+		The return value should be a constant value
 		"""
 		raise NotImplementedError()
+
+	@classmethod
+	@functools.lru_cache()
+	def __get_content_parsers(cls) -> List[re.Pattern]:
+		"""
+		The return value is cached for reuse. Do not modify
+		"""
+		# TODO: drop parse.Parser support
+		formatters = cls.get_content_parsing_formatter()
+		fmt_list: Iterable[Union[str, re.Pattern]]
+		if isinstance(formatters, str) or isinstance(formatters, re.Pattern):
+			fmt_list = [formatters]
+		else:
+			fmt_list = formatters
+		return [parse.Parser(fmt) if isinstance(fmt, str) else fmt for fmt in fmt_list]
 
 	@classmethod
 	def _content_parse(cls, info: Info):
 		"""
-		A common method to parse several elements from an un-parsed Info instance
+		A commonly used method to parse several generic elements from an un-parsed :class:`~mcdreforged.info_reactor.info.Info` object
+
 		Elements expected to be parsed includes:
-		- info.hour
-		- info.min
-		- info.sec
-		- info.logging
-		- info.content
-		:param info: The incoming Info instance
+
+		- :attr:`info.hour <mcdreforged.info_reactor.info.Info.hour>`
+		- :attr:`info.min <mcdreforged.info_reactor.info.Info.min>`
+		- :attr:`info.sec <mcdreforged.info_reactor.info.Info.sec>`
+		- :attr:`info.logging <mcdreforged.info_reactor.info.Info.logging>`
+		- :attr:`info.content <mcdreforged.info_reactor.info.Info.content>`
+
+		:param info: The to-be-processed :class:`~mcdreforged.info_reactor.info.Info` object
+		:meta public:
 		"""
-		formatters = cls.get_content_parsing_formatter()
-		if isinstance(formatters, str):
-			formatters = (formatters,)
-		for formatter in formatters:
-			parsed = parse(formatter, info.content)
+		if info.content is None:
+			raise ValueError('info.content cannot be None')
+
+		for parser in cls.__get_content_parsers():
+			# TODO: drop parse.Parser support
+			if isinstance(parser, parse.Parser):
+				parsed = parser.parse(info.content)
+			else:
+				parsed = parser.fullmatch(info.content)
 			if parsed is not None:
-				logging_level = parsed['logging']
-				if re.fullmatch(r'\w+', logging_level) is None:
-					# logging level should be text only, just in case
-					# might happens in e.g. WaterfallHandler parsing "[01:23:45 INFO] [Test]: ping"
-					continue
 				break
 		else:
 			raise ValueError('Unrecognized input: ' + info.content)
-		info.hour = parsed['hour']
-		info.min = parsed['min']
-		info.sec = parsed['sec']
+
+		info.hour = int(parsed['hour'])
+		info.min = int(parsed['min'])
+		info.sec = int(parsed['sec'])
 		info.logging_level = parsed['logging']
 		info.content = parsed['content']
 
+	@override
 	def parse_server_stdout(self, text: str) -> Info:
-		"""
-		Main parsing operation. Parse a string from the stdout of the server
-		It may raise any exceptions if the format of the input string is not correct
+		info = self._get_server_stdout_raw_result(text)
+		self._content_parse(info)
+		return info
 
-		In this implementation it achieves raw parsing, returns an almost un-parsed Info instance
-		Use as the first step of the parsing process, or as the return value if you give up parsing this text
-		:param str text: A line of the server stdout to be parsed
-		:return: An Info instance
-		:rtype: Info
-		"""
-		result = self._get_server_stdout_raw_result(text)
-		self._content_parse(result)
-		return result
+	_vanilla_minecraft_player_name_regex = re.compile(r'[a-zA-Z0-9_]{3,16}')
 
-	def parse_player_joined(self, info: Info) -> Optional[str]:
-		"""
-		Check if the info indicating a player joined message
-		If it is, returns the name of the player, otherwise returns None
-
-		:param Info info: The info instance that will be checked
-		:return: The name of the player or None
-		:rtype: str or None
-		"""
-		raise NotImplementedError()
-
-	def parse_player_left(self, info: Info) -> Optional[str]:
-		"""
-		Check if the info indicates a player left message
-		If it is, returns the name of the player, otherwise returns None
-
-		:param Info info: The info instance that will be checked
-		:return: The name of the player or None
-		:rtype: str or None
-		"""
-		raise NotImplementedError()
-
-	def test_server_startup_done(self, info: Info) -> bool:
-		"""
-		Check if the info indicates a server startup message and return a bool
-
-		:param Info info: The info instance that will be checked
-		:return: If the info indicates a server startup message
-		:rtype: bool
-		"""
-		raise NotImplementedError()
-
-	def test_rcon_started(self, info: Info) -> bool:
-		"""
-		Check if rcon has started and return a bool
-
-		:param Info info: The info instance that will be checked
-		:return: If rcon has started
-		:rtype: bool
-		"""
-		raise NotImplementedError()
-
-	def test_server_stopping(self, info: Info) -> bool:
-		"""
-		Check if the server is stopping and return a bool
-
-		:param Info info: The info instance that will be checked
-		:return: If the server is stopping
-		:rtype: bool
-		"""
-		raise NotImplementedError()
+	@override
+	def validate_player_name(self, name: str) -> bool:
+		return self._vanilla_minecraft_player_name_regex.fullmatch(name) is not None

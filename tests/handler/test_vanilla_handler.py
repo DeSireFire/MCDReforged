@@ -26,6 +26,9 @@ class MyTestCase(unittest.TestCase):
 
 		self.assertRaises(Exception, self.handler.parse_server_stdout, '[00:11:34 INFO]: Preparing level "world"')  # bukkit thing
 
+		# issue #287, complex thread name
+		self.assertEqual('Thread RCON Client /127.0.0.1 shutting down', self.handler.parse_server_stdout('[16:50:20] [RCON Client /127.0.0.1 #2/INFO]: Thread RCON Client /127.0.0.1 shutting down').content)
+
 	def test_1_player(self):
 		info = self.handler.parse_server_stdout('[09:00:00] [Server thread/INFO]: <Steve> Hello')
 		self.assertEqual('Steve', info.player)
@@ -40,24 +43,63 @@ class MyTestCase(unittest.TestCase):
 		self.assertEqual(None, self.handler.parse_server_stdout('[09:00:00] [Server thread/INFO]: <Prefix Steve> Hello').player)
 		self.assertEqual(None, self.handler.parse_server_stdout('[09:00:00] [Server thread/INFO]: <[Prefix]Steve> Hello').player)
 
-	def test_2_player_events(self):
-		info = self.handler.parse_server_stdout('[00:04:13] [Server thread/INFO]: Fallen_Breath[/127.0.0.1:10545] logged in with entity id 573 at (124.37274191311167, 279.4052172954894, 141.89424426399407)')
-		self.assertEqual('Fallen_Breath', self.handler.parse_player_joined(info))
+		# test color codes
+		self.assertEqual('Alex', self.handler.parse_server_stdout('[09:00:00] [Server thread/INFO]: <§eAlex§r> color').player)
 
-		info = self.handler.parse_server_stdout('[23:52:53] [Server thread/INFO]: Steve left the game')
-		self.assertEqual('Steve', self.handler.parse_player_left(info))
+		# test mc1.19 unverified message
+		self.assertEqual('OwO', self.handler.parse_server_stdout('[09:00:00] [Server thread/INFO]: [Not Secure] <OwO> !!MCDR').player)
+
+	def test_2_player_events(self):
+		for join_line in [
+			'[00:04:13] [Server thread/INFO]: Steve[/127.0.0.1:9864] logged in with entity id 131 at (187.2703, 146.79014, 404.84718)',
+			'[00:04:13] [Server thread/INFO]: Steve[/[2001:aaa:bbb::ccc:ddd:eeee]:9864] logged in with entity id 131 at (1, -2, 3)',
+			'[00:04:13] [Server thread/INFO]: Steve[local] logged in with entity id 131 at (0, 0, 0)',
+			'[00:04:13] [Server thread/INFO]: Steve[IP hidden] logged in with entity id 131 at (Infinity, NaN, Infinity)',
+		]:
+			info = self.handler.parse_server_stdout(join_line)
+			self.assertEqual('Steve', self.handler.parse_player_joined(info), repr(join_line))
+
+		for left_line, expected_player in [
+			('[23:52:53] [Server thread/INFO]: Steve left the game', 'Steve'),
+			# the left game notification is a system chat message in mc >= 26.3 snapshot 3
+			('[23:52:53] [Server thread/INFO]: System chat: Steve left the game', 'Steve'),
+			('[23:52:53] [Server thread/INFO]: System chat: System left the game', 'System'),
+		]:
+			info = self.handler.parse_server_stdout(left_line)
+			self.assertEqual(expected_player, self.handler.parse_player_left(info), repr(left_line))
+
+		# player message shouldn't be treated as a player left event
 		info = self.handler.parse_server_stdout('[23:52:53] [Server thread/INFO]: <Steve> Steve left the game')
 		self.assertEqual(None, self.handler.parse_player_left(info))
+		info = self.handler.parse_server_stdout('[23:52:53] [Server thread/INFO]: <Steve> System chat: Alex left the game')
+		self.assertEqual(None, self.handler.parse_player_left(info))
 
-	def test_3_server_events(self):
-		info = self.handler.parse_server_stdout('[00:01:46] [Server thread/INFO]: Done (3.276s)! For help, type "help"')
-		self.assertEqual(True, self.handler.test_server_startup_done(info))
+		# invalid player name
+		info = self.handler.parse_server_stdout('[23:52:53] [Server thread/INFO]: System chat: ab left the game')
+		self.assertEqual(None, self.handler.parse_player_left(info))
+		info = self.handler.parse_server_stdout('[23:52:53] [Server thread/INFO]: System chat: <Alex> left the game')
+		self.assertEqual(None, self.handler.parse_player_left(info))
+
+	def test_3_server_info(self):
+		info = self.handler.parse_server_stdout('[00:01:36] [Server thread/INFO]: Starting minecraft server version 1.13.2')
+		self.assertEqual('1.13.2', self.handler.parse_server_version(info))
+		info = self.handler.parse_server_stdout('[00:01:36] [Server thread/INFO]: Starting Minecraft server on *:25565')
+		self.assertEqual(('*', 25565), self.handler.parse_server_address(info))
+
+	def test_4_server_events(self):
+		for startup_line in [
+			'[00:01:46] [Server thread/INFO]: Done (3.276s)! For help, type "help"',
+			'[00:01:46] [Server thread/INFO]: Done (65.53s)! For help, type "help" or "?"',
+		]:
+			info = self.handler.parse_server_stdout(startup_line)
+			self.assertEqual(True, self.handler.test_server_startup_done(info), repr(startup_line))
+
 		info = self.handler.parse_server_stdout('[00:01:46] [RCON Listener #1/INFO]: RCON running on 0.0.0.0:25575')
 		self.assertEqual(True, self.handler.test_rcon_started(info))
 		info = self.handler.parse_server_stdout('[00:04:34] [Server Shutdown Thread/INFO]: Stopping server')
 		self.assertEqual(True, self.handler.test_server_stopping(info))
 
-	def test_4_lifecycle(self):
+	def test_5_lifecycle(self):
 		for line in TEXT.splitlines():
 			info = self.handler.parse_server_stdout(line)
 			# no exception

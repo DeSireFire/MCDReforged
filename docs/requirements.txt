@@ -1,5 +1,14 @@
-sphinx                  # core
-sphinx-intl             # locale
-recommonmark            # markdown support in sphinx
-sphinx-markdown-tables  # for markdown table
-sphinx-rtd-theme        # the theme of the webside
+# core
+sphinx>=6.2.1               # core
+sphinx-intl>=2.1.0          # locale
+sphinx-rtd-theme>=3.0.0rc1  # the theme of the webside
+babel==2.17.0               # Unified the version to prevent different versions from appearing in .po comments
+
+# extensions
+sphinx-autobuild               # autobuild server
+sphinx_copybutton              # add copy button on codeblock
+sphinx-design                  # the sphinx-design components lib
+sphinxcontrib-mermaid>=1.0.0   # add mermaid graph support
+sphinx_inline_tabs             # codeblock tabs are nice
+sphinx-prompt                  # make ">>>" prefix in prompt section unselectable
+sphinxcontrib.asciinema        # add asciinema animation support

@@ -1,18 +1,19 @@
 import collections
+import dataclasses
 from enum import Enum
-from typing import Optional, Dict, List
+from typing import Optional, Dict, List, Union
 
 
+PermissionParam = Union[str, int]
+
+
+@dataclasses.dataclass(frozen=True)
 class PermissionLevelItem:
-	def __init__(self, name: str, level: int):
-		self.name = name
-		self.level = level
+	name: str
+	level: int
 
 	def __str__(self):
 		return '{} ({})'.format(self.level, self.name)
-
-	def __repr__(self):
-		return 'Permission[name={},level={}]'.format(self.name, self.level)
 
 	def __lt__(self, other):
 		if not isinstance(other, type(self)):
@@ -28,24 +29,24 @@ class PermissionLevel:
 		ADMIN_	= PermissionLevelItem('admin', 3)
 		OWNER_	= PermissionLevelItem('owner', 4)
 
-	GUEST = __Storage.GUEST_.value.level
-	USER = __Storage.USER_.value.level
-	HELPER = __Storage.HELPER_.value.level
-	ADMIN = __Storage.ADMIN_.value.level
-	OWNER = __Storage.OWNER_.value.level
+	GUEST: int = __Storage.GUEST_.value.level
+	USER: int = __Storage.USER_.value.level
+	HELPER: int = __Storage.HELPER_.value.level
+	ADMIN: int = __Storage.ADMIN_.value.level
+	OWNER: int = __Storage.OWNER_.value.level
 
-	INSTANCES = [item.value for item in __Storage]  # type: List[PermissionLevelItem]
-	LEVELS = [inst.level for inst in INSTANCES]  # type: List[int]
-	NAMES = [inst.name for inst in INSTANCES]  # type: List[str]
-	__NAME_DICT = collections.OrderedDict(zip(NAMES, INSTANCES))  # type: Dict[str, PermissionLevelItem]
-	__LEVEL_DICT = collections.OrderedDict(zip(LEVELS, INSTANCES))  # type: Dict[int, PermissionLevelItem]
+	INSTANCES: List[PermissionLevelItem] = [item.value for item in __Storage]
+	LEVELS: List[int] = [inst.level for inst in INSTANCES]
+	NAMES: List[str] = [inst.name for inst in INSTANCES]
+	__NAME_DICT: Dict[str, PermissionLevelItem] = collections.OrderedDict(zip(NAMES, INSTANCES))
+	__LEVEL_DICT: Dict[int, PermissionLevelItem] = collections.OrderedDict(zip(LEVELS, INSTANCES))
 
-	MAXIMUM_LEVEL = LEVELS[-1]  # type: int
-	MINIMUM_LEVEL = LEVELS[0]  # type: int
-	MCDR_CONTROL_LEVEL = ADMIN  # type: int
-	PHYSICAL_SERVER_CONTROL_LEVEL = OWNER  # type: int
-	CONSOLE_LEVEL = MAXIMUM_LEVEL  # type: int
-	PLUGIN_LEVEL = MAXIMUM_LEVEL  # type: int
+	MAXIMUM_LEVEL: int = LEVELS[-1]
+	MINIMUM_LEVEL: int = LEVELS[0]
+	MCDR_CONTROL_LEVEL: int = ADMIN
+	PHYSICAL_SERVER_CONTROL_LEVEL: int = OWNER
+	CONSOLE_LEVEL: int = MAXIMUM_LEVEL
+	PLUGIN_LEVEL: int = MAXIMUM_LEVEL
 
 	@classmethod
 	def __check_range(cls, level: int):
@@ -55,18 +56,22 @@ class PermissionLevel:
 			raise ValueError('Value {} out of range [{}, {}]'.format(level, cls.MINIMUM_LEVEL, cls.MAXIMUM_LEVEL))
 
 	@classmethod
-	def from_value(cls, value):
+	def from_value(cls, value: PermissionParam) -> PermissionLevelItem:
 		"""
-		Convert any type of permission level into int value. Examples:
-			'guest'	-> 0
-			'admin'	-> 3
-			'1'		-> 1
-			2		-> 2
+		Convert any type of permission level into a :class:`PermissionLevelItem`. Examples:
+
+		>>> PermissionLevel.from_value('guest').level
+		0
+		>>> PermissionLevel.from_value('admin').level
+		3
+		>>> PermissionLevel.from_value('1').level
+		1
+		>>> PermissionLevel.from_value(2).level
+		2
+
 		If the argument is invalid return None
 
 		:param value: a permission related object
-		:type value: str or int
-		:rtype: PermissionLevelItem
 		"""
 		level = None
 		if isinstance(value, str):
@@ -82,7 +87,7 @@ class PermissionLevel:
 		return level
 
 	@classmethod
-	def get_level(cls, value) -> Optional[PermissionLevelItem]:
+	def get_level(cls, value: PermissionParam) -> Optional[PermissionLevelItem]:
 		"""
 		Fail-proof version of from_value
 		"""

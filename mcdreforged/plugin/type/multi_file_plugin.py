@@ -1,60 +1,101 @@
+import contextlib
 import importlib
 import json
 import os
+import re
 import sys
-from abc import ABC
+from abc import ABC, abstractmethod
+from pathlib import Path
+from types import ModuleType
 from typing import IO, Collection
 
-import pkg_resources
-from ruamel import yaml
+from ruamel.yaml import YAML
+from typing_extensions import override
 
 from mcdreforged.constants import plugin_constant
-from mcdreforged.plugin.meta.metadata import Metadata
+from mcdreforged.logging.debug_option import DebugOption
+from mcdreforged.plugin.exception import RequirementCheckFailure
+from mcdreforged.plugin.meta.metadata import Metadata, RequirementsFileSpec
+from mcdreforged.plugin.meta.schema import PluginMetadataJsonModel
 from mcdreforged.plugin.type.regular_plugin import RegularPlugin
+from mcdreforged.utils import path_utils
 from mcdreforged.utils.exception import BrokenMetadata, IllegalPluginStructure
 
 
 class MultiFilePlugin(RegularPlugin, ABC):
+	@property
+	def _file_root(self) -> Path:
+		return self.plugin_path
+
+	@property
+	def _module_search_path(self) -> str:
+		return str(self._file_root)
+
+	@override
 	def get_fallback_metadata_id(self) -> str:
 		raise BrokenMetadata('Missing plugin id in {}'.format(plugin_constant.PLUGIN_META_FILE))
 
+	@abstractmethod
 	def open_file(self, file_path: str) -> IO[bytes]:
 		raise NotImplementedError()
 
+	@abstractmethod
 	def list_directory(self, directory_name: str) -> Collection[str]:
-		return os.listdir(os.path.join(self.plugin_path, directory_name))
+		raise NotImplementedError()
 
+	@override
 	def is_own_module(self, module_name: str) -> bool:
 		plugin_id = self.get_id()
 		return module_name == plugin_id or module_name.startswith('{}.'.format(plugin_id))
 
-	def _get_module_instance(self):
-		return importlib.import_module(self.get_metadata().entrypoint)
+	@override
+	def _import_entrypoint_module(self) -> ModuleType:
+		mod = importlib.import_module(self.get_metadata().entrypoint)
+		if mod.__file__ is not None:
+			mod_path = Path(mod.__file__).absolute()
+			file_root = Path(self._file_root).absolute()
+			if file_root != mod_path and not path_utils.is_relative_to(mod_path, file_root):
+				self.mcdr_server.logger.warning('Suspicious entrypoint module path for plugin %s, package name conflict?', self)
+				self.mcdr_server.logger.warning('- Plugin file root: %s', file_root)
+				self.mcdr_server.logger.warning('- Loaded entrypoint path: %s', mod_path)
+		else:
+			self.mcdr_server.logger.warning('Suspicious entrypoint module %s for plugin %s, it may be an implicit package?', mod.__name__, self)
+		return mod
 
+	@override
 	def _on_load(self):
 		super()._on_load()
-		try:
-			meta_file = self.open_file(plugin_constant.PLUGIN_META_FILE)
-		except:
-			raise IllegalPluginStructure('Metadata file {} not found'.format(plugin_constant.PLUGIN_META_FILE)) from None
-		with meta_file:
-			self._set_metadata(Metadata(json.load(meta_file), plugin=self))
+		with contextlib.ExitStack() as es:
+			try:
+				meta_file = es.enter_context(self.open_file(plugin_constant.PLUGIN_META_FILE))
+			except FileNotFoundError:
+				raise IllegalPluginStructure('Metadata file {} not found'.format(plugin_constant.PLUGIN_META_FILE)) from None
+			meta_json_buf = meta_file.read()
+		metadata_model = PluginMetadataJsonModel.model_validate_json(meta_json_buf, strict=True)
+		if metadata_model.schema_version > plugin_constant.PLUGIN_METADATA_SCHEMA_VERSION:
+			self.mcdr_server.logger.warning(
+				'Plugin metadata schema version %s is newer than the latest supported version %s, parsing known fields only',
+				metadata_model.schema_version, plugin_constant.PLUGIN_METADATA_SCHEMA_VERSION,
+			)
+		self._set_metadata(Metadata.create(metadata_model, plugin=self))
 		self.__check_requirements()
-		self._check_subdir_legality()
+		self._check_dir_legality()
 
+	@override
 	def _on_unload(self):
 		super()._on_unload()
 		try:
-			sys.path.remove(self.plugin_path)
+			sys.path.remove(self._module_search_path)
 		except ValueError:
-			self.mcdr_server.logger.debug('Fail to remove path "{}" in sys.path for {}'.format(self.plugin_path, self))
+			self.mcdr_server.logger.debug('Fail to remove path {!r} in sys.path for {}'.format(self._module_search_path, self))
 
+	@override
 	def _on_ready(self):
-		sys.path.append(self.plugin_path)
+		sys.path.append(self._module_search_path)
 		# It's fail-proof for packed plugin
 		try:
 			self._load_entry_instance()
-		except:
+		except Exception:
 			self.mcdr_server.logger.exception('Fail to load the entry point of {}'.format(self))
 		else:
 			super()._on_ready()
@@ -72,15 +113,18 @@ class MultiFilePlugin(RegularPlugin, ABC):
 				with self.open_file(file_path) as file_handler:
 					if file_extension == 'json':
 						translations = json.load(file_handler)
-					elif file_extension == 'yml':
-						translations = dict(yaml.load(file_handler, Loader=yaml.Loader))
+					elif file_extension in ['yml', 'yaml']:
+						translations = YAML(typ='safe').load(file_handler)
 					else:
+						self.mcdr_server.logger.mdebug('Skipping unknown translation file {} in {}'.format(file_path, repr(self)), option=DebugOption.PLUGIN)
 						continue
 				self.register_translation(language, translations)
-			except:
+			except Exception:
 				self.mcdr_server.logger.exception('Fail to load default translation from file {} in {}'.format(file_path, repr(self)))
 
-	def _check_subdir_legality(self):
+	_ILLEGAL_ROOT_PY_FILE_STEM = re.compile(r'^[A-Za-z_](?!_)[A-Za-z0-9_]*$')
+
+	def _check_dir_legality(self):
 		"""
 		Make sure the only python submodule inside the plugin is named with the plugin id
 		:raise IllegalPluginStructure if check failed
@@ -88,12 +132,45 @@ class MultiFilePlugin(RegularPlugin, ABC):
 		raise NotImplementedError()
 
 	def __check_requirements(self):
-		try:
-			req_file = self.open_file(plugin_constant.PLUGIN_REQUIREMENTS_FILE)
-		except:
+		requirements_file = self.get_metadata().requirements_file
+		if requirements_file.mode is RequirementsFileSpec.Mode.DISABLED:
 			return
+		assert requirements_file.path is not None
+		requirements_path = requirements_file.path
+		try:
+			req_file = self.open_file(requirements_path)
+		except FileNotFoundError:
+			if requirements_file.mode is RequirementsFileSpec.Mode.AUTO:
+				return
+			raise IllegalPluginStructure('Requirements file {} not found'.format(requirements_path)) from None
 		with req_file:
-			requirements = []
-			for line in req_file.readlines():
-				requirements.append(line.decode('utf8').strip('\r\n'))
-		pkg_resources.require(requirements)
+			import packaging.requirements as pr
+			import packaging.version as pv
+			import importlib.metadata as im
+
+			req_file_str = req_file.read().decode('utf8')
+			for i, line in enumerate(req_file_str.splitlines()):
+				# ref: pip._internal.req.req_file.ignore_comments
+				line = line.split('#', 1)[0].strip()
+				if len(line) == 0:
+					continue
+
+				try:
+					req = pr.Requirement(line)  # InvalidRequirement
+					dist = im.distribution(req.name)  # PackageNotFoundError
+					version = pv.Version(dist.version)  # InvalidVersion
+					if not req.specifier.contains(version, True):
+						raise RequirementCheckFailure('version unsatisfied for required package {}: expect {}, but installed {}'.format(
+							repr(req.name), repr(str(req.specifier)), repr(version)
+						))
+				except pr.InvalidRequirement as e:
+					# no raise here, since we don't fully support the complete requirements.txt schema
+					self.mcdr_server.logger.warning('Invalid / Unsupported requirement declaration {} in line {}:'.format(repr(line), i + 1))
+					for err_line in str(e).splitlines():
+						self.mcdr_server.logger.warning('    {}'.format(err_line))
+				except im.PackageNotFoundError as e:
+					raise RequirementCheckFailure('required package {} not installed'.format(repr(str(e))))
+				except pv.InvalidVersion as e:
+					raise RequirementCheckFailure('installed package {} version {} does not conform to PEP 440: {}'.format(
+						repr(req.name), repr(dist.version), e
+					))

@@ -1,9 +1,9 @@
 Plugin Catalogue
 ================
 
-The official MCDR plugin catalogue is the ``next`` branch of repository https://github.com/MCDReforged/PluginCatalogue. Users can browse plugins here and developers can submit their plugins to the catalogue
+The official MCDR plugin catalogue is the ``master`` branch of repository https://github.com/MCDReforged/PluginCatalogue. Users can browse plugins here and developers can submit their plugins to the catalogue
 
-The catalogue is updated once files change, and every 30 minutes via github action
+The catalogue is updated once files change, and twice per hour via github action
 
 File structures
 ---------------
@@ -12,17 +12,25 @@ Plugin information is stored in the ``plugins/`` directory in the repository. Ea
 
 .. code-block::
 
-   plugins/
-    ├─ my_plugin
-    │   └─ plugin_info.json
-    └─ another_plugin
-        ├─ plugin_info.json
-        └─ some_other_files.txt
+    plugins/
+     ├─ my_plugin
+     │   └─ plugin_info.json
+     └─ another_plugin
+         ├─ plugin_info.json
+         └─ some_other_files.txt
 
 Plugin Info
 ^^^^^^^^^^^
 
-``plugin_info.json`` contains the basic information of your plugin
+.. list-table::
+    :header-rows: 1
+
+    * - File
+      - Role
+    * - ``plugin_info.json``
+      - The catalogue registration record for the plugin, defining how it is registered and presented
+    * - ``mcdreforged.plugin.json``
+      - The plugin's self-declared metadata, defining its identity and runtime contract with MCDR
 
 id
 ~~
@@ -36,7 +44,10 @@ authors
 
 Optional field, default: ``[]``
 
-A list contains the authors of the plugin. Elements in the list can be a single str representing the name of the author, or a dict contains the author name and the url link of the author
+A list contains the authors of the plugin.
+Elements in the list can be a single str representing the name of the author, or a dict contains the author name and the url link of the author
+
+The url field can be written as ``link`` (the catalogue form) or ``homepage`` (the plugin metadata form); both represent the author's homepage
 
 Example:
 
@@ -74,7 +85,7 @@ Type: str
 related_path
 ~~~~~~~~~~~~
 
-Optional field, default: ``.``, which means your plugin files are in the root directory of your repository
+Optional field, default: ``"."``, which means your plugin files are in the root directory of your repository
 
 The related path of your plugin files in your repository
 
@@ -99,29 +110,33 @@ Then the ``related_path`` would be ``source``
 
 Type: str
 
+.. note::
+
+    It's highly recommend to keep your plugin's ``related_path`` field unchanged after the plugin is published,
+    otherwise the plugin catalogue might not be able to locate and fetch the metadata of older releases of your plugin
+
 labels
 ~~~~~~
 
 Optional field, default: ``[]``
 
-A list of id of `label <#Label>`__ of your plugin. Choose them wisely
+A list of id of :ref:`plugin_dev/plugin_catalogue:Label` of your plugin. Choose them wisely
 
 Type: List[str]
 
 introduction
 ~~~~~~~~~~~~
 
-Optional field, default: ``{}``
+Introduction is a paragraph written in markdown syntax, showing the features of the plugin to attract new users. It will be shown to user when they are browsing your plugin
 
-Introduction is a paragraph written in markdown syntax. It will be shown to user when they are browsing your plugin. Comparing to readme or document, introduction focuses more on showing the features of the plugin to attract new users
-
-For the ``introduction`` field, it's a mapping maps `language <#language>`__ into a file path
+For the :ref:`plugin_dev/plugin_catalogue:introduction` field, it's a mapping maps :ref:`plugin_dev/plugin_catalogue:language` into a file path
 
 The key is the language
 
-The value is the file path of the introduction file in your plugin repository. Field `related_path <#related-path>`__ is considered during the calculation of the real url
+The value is the file path of the introduction file in your plugin repository.
+Field :ref:`plugin_dev/plugin_catalogue:related_path` is considered during the calculation of the real url
 
-Example with the same file structure in `related_path section <#related-path>`__:
+Example with the same file structure in :ref:`plugin_dev/plugin_catalogue:related_path`:
 
 .. code-block:: json
 
@@ -130,17 +145,30 @@ Example with the same file structure in `related_path section <#related-path>`__
         "zh_cn": "doc/introduction-zh_cn.md"
     }
 
-Alternatively you can don't declare this field but put your introduction file inside the same directory where ``plugin_info.json`` is
+.. tip::
+
+    A commonly-used and recommended practice is to link the introduction document to the README files in your repository
+
+    .. code-block:: json
+
+        "introduction": {
+            "en_us": "README.md",
+            "zh_cn": "README_CN.md"
+        }
+
+Alternatively, you can don't declare this field but put your introduction file inside the same directory where ``plugin_info.json`` is
 
 It's named by ``introduction.md`` for default language ``en_us`` and named by e.g. ``introduction-zh_cn.md`` for other language
 
 .. code-block::
 
-   plugins/
-    └─ my_plugin
-        ├─ plugin_info.json
-        ├─ introduction.md
-        └─ introduction-zh_cn.md
+    plugins/
+     └─ my_plugin
+         ├─ plugin_info.json
+         ├─ introduction.md
+         └─ introduction-zh_cn.md
+
+You should provide the introduction at least in one language
 
 Type: Dict[str, str]
 
@@ -159,16 +187,19 @@ All current available labels are shown in the following table
       - Description
     * - information
       - Information
-      - Show or get information for users
+      - Collects and displays information for users
     * - tool
       - Tool
-      - A tool, or a game helper
+      - A useful tool, or a game helper
     * - management
       - Management
-      - Manages files or other stuffs of the server
+      - Manages files or other stuffs on the server
     * - api
       - API
-      - Works as a API or a library which provides common functionalities to other plugins
+      - Functions as an API or library that provides common functionalities to other plugins
+    * - handler
+      - Handler
+      - Provides a :doc:`custom server handler </customize/handler>`
 
 Language
 --------
@@ -202,15 +233,23 @@ Plugin catalogue will automatically detect the releases in your plugin repositor
     * - ``<plugin_id>-v<version>``
       - my_plugin-v1.2.3
 
-* Assets: contains 1 asset with ``.mcdr`` file extension name. Other assets will be ignored
+* Assets: contains 1 asset with ``.mcdr`` or ``.pyz`` file extension name. Other assets will be ignored
 
-  Which also means only `Packed Plugin <plugin_format.html#packed-plugin>`__ is supported
+  Which also means only :ref:`plugin_dev/plugin_format:Packed Plugin` is supported
 
 Submit Plugin
 -------------
 
-If you want to submit your plugin, create the directory of your plugin inside the ``plugins/`` directory with necessary files, and make a pull request
+It's encouraged to read the `Contributing Guidelines <https://github.com/MCDReforged/PluginCatalogue/blob/master/CONTRIBUTING.md>`_ before submitting your plugin
 
-It's recommended to leave your github link in the `authors <#authors>`__ field so repository maintainers can simply tell if you are the owner of the plugin
+If you want to submit your plugin:
+
+1. Fork the catalogue repo
+
+2. Create a directory for your plugin within the ``plugins/`` folder, including all the necessary files
+
+3. Create a pull request
+
+It's recommended to leave your github link in the :ref:`plugin_dev/plugin_catalogue:authors` field so repository maintainers can simply tell if you are the owner of the plugin
 
 All changes files should only be inside the sub-directory named by your plugin id in the ``plugins/`` folder

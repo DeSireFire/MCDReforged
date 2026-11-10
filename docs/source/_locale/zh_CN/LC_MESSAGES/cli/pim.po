@@ -1,0 +1,107 @@
+
+msgid ""
+msgstr ""
+"Project-Id-Version: MCDReforged \n"
+"Report-Msgid-Bugs-To: \n"
+"POT-Creation-Date: 2024-06-01 19:46+0800\n"
+"PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
+"Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
+"Language-Team: LANGUAGE <LL@li.org>\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=utf-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Generated-By: Babel 2.15.0\n"
+
+#: ../cli/pim.rst:3
+msgid "CLI Subcommand - pim"
+msgstr "子命令 - pim"
+
+#: ../cli/pim.rst:11
+msgid "A simple version of Plugin Installer for MCDReforged"
+msgstr "简单的 MCDR 插件管理工具"
+
+#: ../cli/pim.rst:14
+msgid "browse"
+msgstr "browse"
+
+#: ../cli/pim.rst:20
+msgid "Browse plugins in the official plugin catalogue"
+msgstr "从官方插件仓库中浏览插件"
+
+#: ../cli/pim.rst:23
+msgid "keyword"
+msgstr "keyword"
+
+#: ../cli/pim.rst:25
+msgid "Search keyword to filter the plugins"
+msgstr "用于过滤插件的搜索关键字"
+
+#: ../cli/pim.rst:27
+msgid "If not provided, list all plugins"
+msgstr "若未提供，则列出所有插件"
+
+#: ../cli/pim.rst:31
+msgid "download"
+msgstr "download"
+
+#: ../cli/pim.rst:40
+msgid "plugin_ids"
+msgstr "plugin_ids"
+
+#: ../cli/pim.rst:42
+msgid "IDs of the plugins to be downloaded"
+msgstr "将被下载的插件的 ID"
+
+#: ../cli/pim.rst:44 ../cli/pim.rst:78
+msgid "It can be supplied multiple times"
+msgstr "可提供多次"
+
+#: ../cli/pim.rst:47
+msgid "-o, --output"
+msgstr "-o, --output"
+
+#: ../cli/pim.rst:49
+msgid "Path of the directory to store the downloaded plugins"
+msgstr "储存下载的插件的目标文件夹"
+
+#: ../cli/pim.rst:51
+msgid "Default: current directory"
+msgstr "默认值：当前所在的文件夹"
+
+#: ../cli/pim.rst:55
+msgid "pipi"
+msgstr "pipi"
+
+#: ../cli/pim.rst:61
+msgid "pipi == pip-install"
+msgstr "pipi 即 pip-install 的缩写"
+
+#: ../cli/pim.rst:63
+msgid ""
+"Call ``pip install`` with the requirements.txt file in the given packed "
+"plugin to install Python packages"
+msgstr ""
+"读取给定的打包插件中的 requirements.txt 文件，然后使用当前 Python 解释器调用 ``pip install`` 命令来安装"
+" Python 包依赖"
+
+#: ../cli/pim.rst:65
+msgid "Example usages:"
+msgstr "用法举例："
+
+#: ../cli/pim.rst:74
+msgid "plugin_paths"
+msgstr "plugin_paths"
+
+#: ../cli/pim.rst:76
+msgid "The packed plugin files to be processed"
+msgstr "将要处理的打包插件文件的路径"
+
+#: ../cli/pim.rst:81
+msgid "-a, --args"
+msgstr "-a, --args"
+
+#: ../cli/pim.rst:83
+msgid ""
+"Extra arguments passing to the pip process, e.g. ``--args \"--proxy "
+"http://localhost:8080\"``"
+msgstr "传递给 pip 进程的额外参数，如 ``--args \"--proxy http://localhost:8080\"``"

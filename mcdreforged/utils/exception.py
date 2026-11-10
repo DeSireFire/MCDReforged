@@ -17,14 +17,20 @@ class IllegalStateError(RuntimeError):
 	pass
 
 
-class ServerStopped(RuntimeError):
-	pass
-
-
 class IllegalPluginStructure(Exception):
 	pass
 
 
 # When the metadata of a plugin is invalid
 class BrokenMetadata(Exception):
+	pass
+
+
+# If the metadata of a AbstractPlugin has not been set yet
+class MetadataNotSet(Exception):
+	pass
+
+
+# infinity join
+class SelfJoinError(RuntimeError):
 	pass

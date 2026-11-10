@@ -5,18 +5,27 @@
 
 Welcome to MCDReforged's documentation!
 =======================================
-This is the official documentation for `MCDReforged <https://github.com/Fallen-Breath/MCDReforged>`__.
+
+**English** | `中文 <https://docs.mcdreforged.com/zh-cn>`__
+
+This is the official documentation for `MCDReforged <https://github.com/MCDReforged/MCDReforged>`__.
 
 .. toctree::
    :maxdepth: 2
    :caption: Home
 
-   Quick Start<quick_start.rst>
-   Configure<configure.rst>
+   Quick Start<quick_start/index.rst>
+   Configuration<configuration.rst>
+   Command<command/index.rst>
    Permission<permission.rst>
-   Command<command.rst>
-   Plugin Development<plugin_dev/index.rst>
+   Preference<preference.rst>
    Customize<customize/customize.rst>
+   Command Line Interface<cli/index.rst>
+   Docker<docker.rst>
+   Plugin Development<plugin_dev/index.rst>
+   MCDR Development<mcdr_dev/index.rst>
+   Telemetry<telemetry.rst>
+   Code References<code_references/index.rst>
    Migrate Guide<migrate/index.rst>
 
 Indices and tables

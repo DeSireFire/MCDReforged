@@ -1,40 +1,88 @@
 """
 The basic plain handler
 """
-from typing import Any, Optional
+import time
+from typing import Optional, Tuple
 
-from mcdreforged.handler.abstract_server_handler import AbstractServerHandler
-from mcdreforged.info import Info
+from typing_extensions import override
+
+from mcdreforged.handler.server_handler import ServerHandler
+from mcdreforged.info_reactor.info import Info, InfoSource
+from mcdreforged.info_reactor.server_information import ServerInformation
+from mcdreforged.utils.types.message import MessageText
 
 
-class BasicHandler(AbstractServerHandler):
+class BasicHandler(ServerHandler):
+	"""
+	The basic plain handler, providing the minimum parsed information
+
+	During server output parsing, it's used as the fallback handler when every other dedicated handler failed
+	"""
+
+	@override
+	def get_name(self) -> str:
+		return 'basic_handler'
+
+	@override
 	def get_stop_command(self) -> str:
 		return ''
 
-	def get_send_message_command(self, target: str, message: Any) -> Optional[str]:
+	@override
+	def get_send_message_command(self, target: str, message: MessageText, server_information: ServerInformation) -> Optional[str]:
 		return None
 
-	def get_broadcast_message_command(self, message: Any) -> Optional[str]:
+	@override
+	def get_broadcast_message_command(self, message: MessageText, server_information: ServerInformation) -> Optional[str]:
 		return None
 
-	@classmethod
-	def get_content_parsing_formatter(cls):
-		raise RuntimeError()
+	@override
+	def pre_parse_server_stdout(self, text: str) -> str:
+		return text
 
+	@override
+	def parse_console_command(self, text: str) -> Info:
+		info = Info(InfoSource.CONSOLE, text)
+		t = time.localtime(time.time())
+		info.hour = t.tm_hour
+		info.min = t.tm_min
+		info.sec = t.tm_sec
+		info.content = text
+		return info
+
+	@override
 	def parse_server_stdout(self, text: str) -> Info:
-		return self._get_server_stdout_raw_result(text)
+		info = Info(InfoSource.SERVER, text)
+		info.content = text
+		return info
 
-	def parse_player_joined(self, info):
+	@override
+	def parse_player_joined(self, info: Info) -> Optional[str]:
 		return None
 
-	def parse_player_left(self, info):
+	@override
+	def parse_player_left(self, info: Info) -> Optional[str]:
 		return None
 
+	@override
+	def parse_server_version(self, info: Info) -> Optional[str]:
+		return None
+
+	@override
+	def parse_server_address(self, info: Info) -> Optional[Tuple[str, int]]:
+		return None
+
+	@override
 	def test_server_startup_done(self, info) -> bool:
 		return False
 
+	@override
 	def test_rcon_started(self, info: Info) -> bool:
 		return False
 
+	@override
 	def test_server_stopping(self, info: Info) -> bool:
 		return False
+
+	@override
+	def validate_player_name(self, name: str) -> bool:
+		return name.isprintable()

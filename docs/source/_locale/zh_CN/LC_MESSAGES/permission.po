@@ -3,16 +3,16 @@ msgid ""
 msgstr ""
 "Project-Id-Version:  mcdreforged\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2021-01-26 12:18+0800\n"
+"POT-Creation-Date: 2024-12-26 22:21+0800\n"
 "PO-Revision-Date: 2021-01-23 08:51+0800\n"
 "Last-Translator: Alex3236 <alex3236@qq.com>\n"
 "Language: zh_CN\n"
 "Language-Team: Chinese Simplified\n"
-"Plural-Forms: nplurals=1; plural=0\n"
+"Plural-Forms: nplurals=1; plural=0;\n"
 "MIME-Version: 1.0\n"
 "Content-Type: text/plain; charset=utf-8\n"
 "Content-Transfer-Encoding: 8bit\n"
-"Generated-By: Babel 2.9.0\n"
+"Generated-By: Babel 2.15.0\n"
 
 #: ../permission.rst:3
 msgid "Permission"
@@ -26,7 +26,7 @@ msgstr "概览"
 msgid ""
 "There is a simple built-in permission system in MCDR. It can be used by "
 "MCDR commands and plugins"
-msgstr "MCDR 配备了一个简易的权限系统以供 MCDR 及插件使用。"
+msgstr "MCDR 配备了一个简易的权限系统以供 MCDR 及插件使用"
 
 #: ../permission.rst:10
 msgid "There are 5 different levels of permission in total:"
@@ -53,8 +53,10 @@ msgid "4"
 msgstr "4"
 
 #: ../permission.rst:20
-msgid "Highest level for those who have the ability to access the physical server"
-msgstr "最高权限，所有者，具有控制物理服务器的能力"
+msgid ""
+"Highest level for those who have the ability to access the physical "
+"server. e.g. Server owner"
+msgstr "最高权限，所有者，具有控制物理服务器的能力。例子：服务器拥有者"
 
 #: ../permission.rst:21
 msgid "admin"
@@ -65,8 +67,10 @@ msgid "3"
 msgstr "3"
 
 #: ../permission.rst:23
-msgid "People with power to control the MCDR and the server"
-msgstr "管理员，拥有控制 MCDR 与服务器的能力"
+msgid ""
+"People with power to control the MCDR and the Minecraft server. e.g. "
+"Minecraft OPs"
+msgstr "管理员，拥有控制 MCDR 与 Minecraft 服务器的能力。例子：Minecraft 中的 OP"
 
 #: ../permission.rst:24
 msgid "helper"
@@ -77,8 +81,8 @@ msgid "2"
 msgstr "2"
 
 #: ../permission.rst:26
-msgid "A group of helper of admin"
-msgstr "助手，可以协助管理员进行服务器管理"
+msgid "A group of helper of admin. e.g. Trusted members"
+msgstr "助手，可以协助管理员进行服务器管理。例子：值得信赖的成员"
 
 #: ../permission.rst:27
 msgid "user"
@@ -102,60 +106,67 @@ msgstr "0"
 
 #: ../permission.rst:32
 msgid "The lowest level for guest or trollers"
-msgstr "最低权限，如访客"
+msgstr "最低权限，如访客或者熊孩子"
 
 #: ../permission.rst:35
 msgid ""
 "The permission level of console input is always the highest level "
 "``owner``"
-msgstr "控制台输入的指令将被视为最高权限等级 ``owner`` 。"
+msgstr "控制台输入的命令将被视为最高权限等级 ``owner`` "
 
-#: ../permission.rst:38
+#: ../permission.rst:39
+msgid ""
+":ref:`command/mcdr:Permission management`, to learn how to manage "
+"permissions using MCDR commands"
+msgstr ":ref:`command/mcdr:Permission management`，了解如何用 MCDR 命令管理权限"
+
+#: ../permission.rst:42
 msgid "Permission File"
 msgstr "权限文件"
 
-#: ../permission.rst:40
+#: ../permission.rst:44
 msgid ""
 "Permission file ``permission.yml`` is the config and storage file for the"
 " system"
-msgstr "权限文件 ``permission.yml`` 用以储存权限系统的相关信息。"
+msgstr "权限文件 ``permission.yml`` 用以储存权限系统的相关信息"
 
-#: ../permission.rst:43
+#: ../permission.rst:47
 msgid ""
 "`default_level`: The default permission level a new player will get. "
 "Default: ``user``"
 msgstr "``default_level``：新玩家默认的权限等级。默认值：``user``"
 
-#: ../permission.rst:44
+#: ../permission.rst:48
 msgid "``owner``: Names of players with permission ``owner``"
 msgstr "``owner``：拥有权限等级 ``owner`` 的玩家列表"
 
-#: ../permission.rst:45
+#: ../permission.rst:49
 msgid "``admin``: Names of players with permission ``admin``"
 msgstr "``admin``：拥有权限等级 ``admin`` 的玩家列表"
 
-#: ../permission.rst:46
+#: ../permission.rst:50
 msgid "``helper``: Names of players with permission ``helper``"
 msgstr "``helper``：拥有权限等级 ``helper`` 的玩家列表"
 
-#: ../permission.rst:47
+#: ../permission.rst:51
 msgid "``user``: Names of players with permission ``user``"
 msgstr "``user``：拥有权限等级 ``user`` 的玩家列表"
 
-#: ../permission.rst:48
+#: ../permission.rst:52
 msgid "``guest``: Names of players with permission ``guest``"
 msgstr "``guest``：拥有权限等级 ``guest`` 的玩家列表"
 
-#: ../permission.rst:50
+#: ../permission.rst:54
 msgid "Player name list of permission levels can be filled like this:"
 msgstr "玩家名列表可以参照如下方式填写："
 
-#: ../permission.rst:65
+#: ../permission.rst:69
 msgid ""
 "Permission file supports hot-reload. You can use ``!!MCDR reload "
-"permission`` to reload the permission file in-game. Check the `here "
-"<command.html#hot-reloads>`__ for more detail about hot reloads"
-msgstr ""
-"权限文件支持热重载。你可以使用 ``!!MCDR reload permission`` 指令来重载权限文件。更多与热重载相关的指令见 `此处 "
-"<command.html#hot-reloads>`__。"
+"permission`` to reload the permission file in-game"
+msgstr "权限文件支持热重载。你可以使用 ``!!MCDR reload permission`` 命令来重载权限文件"
+
+#: ../permission.rst:73
+msgid ":ref:`command/mcdr:Hot reloads` command, for more detail about hot reloads"
+msgstr ":ref:`command/mcdr:Hot reloads` 命令章节中更多与热重载相关的命令"
 

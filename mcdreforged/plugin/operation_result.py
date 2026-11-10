@@ -1,68 +1,105 @@
+import dataclasses
 import os
-from typing import List, TYPE_CHECKING
+from enum import Enum
+from pathlib import Path
+from typing import List, TYPE_CHECKING, Callable, Union
 
-from mcdreforged.minecraft.rtext import RTextList, RText, RAction, RTextBase
+from mcdreforged.minecraft.rtext.click_event import RAction
+from mcdreforged.minecraft.rtext.text import RTextList, RTextBase
+from mcdreforged.utils import class_utils
 
 if TYPE_CHECKING:
+	from mcdreforged.mcdr_server import MCDReforgedServer
 	from mcdreforged.plugin.type.plugin import AbstractPlugin
-	from mcdreforged.plugin.plugin_manager import PluginManager
 
 
 class SingleOperationResult:
 	def __init__(self):
-		self.success_list = []  # type: List['AbstractPlugin']
-		self.failed_list = []  # type: List['AbstractPlugin' or str]
+		self.success_list: List['AbstractPlugin'] = []
+		self.failed_list: List[Union['AbstractPlugin', Path]] = []
 
 	def succeed(self, plugin: 'AbstractPlugin'):
 		self.success_list.append(plugin)
 
-	def fail(self, plugin: 'AbstractPlugin' or str):
+	def fail(self, plugin: Union['AbstractPlugin', Path]):
 		self.failed_list.append(plugin)
 
-	def record(self, plugin: 'AbstractPlugin' or str, result: bool):
+	def record(self, plugin: Union['AbstractPlugin', Path], result: bool):
 		if result:
-			self.succeed(plugin)
+			from mcdreforged.plugin.type.plugin import AbstractPlugin
+			self.succeed(class_utils.check_type(plugin, AbstractPlugin))
 		else:
 			self.fail(plugin)
 
-	def clear(self):
-		self.success_list.clear()
-		self.failed_list.clear()
+	def __len__(self) -> int:
+		return len(self.success_list) + len(self.failed_list)
 
-	def has_success(self):
+	def is_success_or_empty(self) -> bool:
+		return self.has_success() or len(self) == 0
+
+	def has_success(self) -> bool:
 		return len(self.success_list) > 0
 
-	def has_failed(self):
+	def has_failed(self) -> bool:
 		return len(self.failed_list) > 0
 
 
+@dataclasses.dataclass(frozen=True)
+class _PluginResultTypeImpl:
+	result_extractor: Callable[['PluginOperationResult'], 'SingleOperationResult']
+	check_dependency: bool
+
+	@staticmethod
+	def load_result_getter(result: 'PluginOperationResult') -> 'SingleOperationResult':
+		return result.load_result
+
+	@staticmethod
+	def unload_result_getter(result: 'PluginOperationResult') -> 'SingleOperationResult':
+		return result.unload_result
+
+	@staticmethod
+	def reload_result_getter(result: 'PluginOperationResult') -> 'SingleOperationResult':
+		return result.reload_result
+
+
+class PluginResultType(Enum):
+	LOAD = _PluginResultTypeImpl(_PluginResultTypeImpl.load_result_getter, True)
+	UNLOAD = _PluginResultTypeImpl(_PluginResultTypeImpl.unload_result_getter, False)
+	RELOAD = _PluginResultTypeImpl(_PluginResultTypeImpl.reload_result_getter, True)
+
+
+@dataclasses.dataclass(frozen=True)
 class PluginOperationResult:
-	def __init__(self, plugin_manager: 'PluginManager'):
-		self.__plugin_manager = plugin_manager
-		self.__mcdr_server = plugin_manager.mcdr_server
-		self.load_result = SingleOperationResult()
-		self.unload_result = SingleOperationResult()
-		self.reload_result = SingleOperationResult()
-		self.dependency_check_result = SingleOperationResult()
+	load_result: SingleOperationResult
+	unload_result: SingleOperationResult
+	reload_result: SingleOperationResult
+	dependency_check_result: SingleOperationResult
 
-	def record(self, load_result, unload_result, reload_result, dependencies_resolve_result):
-		self.load_result = load_result
-		self.unload_result = unload_result
-		self.reload_result = reload_result
-		self.dependency_check_result = dependencies_resolve_result
+	@classmethod
+	def of_empty(cls) -> 'PluginOperationResult':
+		empty = SingleOperationResult()
+		return PluginOperationResult(empty, empty, empty, empty)
 
-	def clear(self):
-		self.load_result.clear()
-		self.unload_result.clear()
-		self.reload_result.clear()
-		self.dependency_check_result.clear()
+	def get_if_success(self, result_type: PluginResultType) -> bool:
+		"""
+		Check if there's any plugin inside the given operation result (load result / reload result etc.)
+		Then check if the plugin passed the dependency check if param check_loaded is True
+		"""
+		target_result = result_type.value.result_extractor(self)
+		success = target_result.has_success()
+		if success and result_type.value.check_dependency:
+			plugin = target_result.success_list[0]
+			success = plugin in self.dependency_check_result.success_list
+		return success
 
-	def to_rtext(self, *, show_path: bool) -> RTextBase:
+	def to_rtext(self, mcdr_server: 'MCDReforgedServer', *, show_path: bool) -> RTextBase:
 		def add_element(msg: RTextList, element):
 			msg.append(element)
 			msg.append('; ')
 
-		def add_if_not_empty(msg: RTextList, lst: List['AbstractPlugin' or str], key: str):
+		tr = mcdr_server.create_internal_translator('plugin_operation_result')
+
+		def add_if_not_empty(msg: RTextList, lst: list, key: str):
 			if len(lst) > 0:
 				text_list = []
 				for ele in lst:
@@ -70,21 +107,21 @@ class PluginOperationResult:
 						text_list.append(ele if show_path else os.path.basename(ele))
 					else:
 						text_list.append(str(ele))
-				add_element(msg, RText(self.__mcdr_server.tr(key, len(lst))).h('\n'.join(text_list)))
+				add_element(msg, tr(key, len(lst)).h('\n'.join(text_list)))
 
 		message = RTextList()
-		add_if_not_empty(message, list(filter(lambda plg: plg in self.dependency_check_result.success_list, self.load_result.success_list)), 'plugin_operation_result.info_loaded_succeeded')
-		add_if_not_empty(message, self.unload_result.success_list, 'plugin_operation_result.info_unloaded_succeeded')
-		add_if_not_empty(message, self.reload_result.success_list, 'plugin_operation_result.info_reloaded_succeeded')
-		add_if_not_empty(message, self.load_result.failed_list, 'plugin_operation_result.info_loaded_failed')
-		add_if_not_empty(message, self.unload_result.failed_list, 'plugin_operation_result.info_unloaded_failed')
-		add_if_not_empty(message, self.reload_result.failed_list, 'plugin_operation_result.info_reloaded_failed')
-		add_if_not_empty(message, self.dependency_check_result.failed_list, 'plugin_operation_result.info_dependency_check_failed')
+		add_if_not_empty(message, [plg for plg in self.load_result.success_list if plg in self.dependency_check_result.success_list], 'info_loaded_succeeded')
+		add_if_not_empty(message, self.unload_result.success_list, 'info_unloaded_succeeded')
+		add_if_not_empty(message, self.reload_result.success_list, 'info_reloaded_succeeded')
+		add_if_not_empty(message, self.load_result.failed_list, 'info_loaded_failed')
+		add_if_not_empty(message, self.unload_result.failed_list, 'info_unloaded_failed')
+		add_if_not_empty(message, self.reload_result.failed_list, 'info_reloaded_failed')
+		add_if_not_empty(message, self.dependency_check_result.failed_list, 'info_dependency_check_failed')
 		if message.is_empty():
-			add_element(message, self.__mcdr_server.tr('plugin_operation_result.info_none'))
+			add_element(message, tr('info_none'))
 		message.append(
-			RText(self.__mcdr_server.tr('plugin_operation_result.info_plugin_amount', self.__plugin_manager.get_plugin_amount())).
-				h('\n'.join(map(str, self.__plugin_manager.get_all_plugins()))).
-				c(RAction.suggest_command, '!!MCDR plugin list')
+			tr('info_plugin_count', mcdr_server.plugin_manager.get_plugin_amount()).
+			h('\n'.join(map(str, mcdr_server.plugin_manager.get_all_plugins()))).
+			c(RAction.suggest_command, '!!MCDR plugin list')
 		)
 		return message

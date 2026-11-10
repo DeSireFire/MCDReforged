@@ -1,18 +1,26 @@
 """
 Constants related to plugin for MCDR
 """
+from mcdreforged.constants import core_constant
 
-# the directory inside MCDR working directory that stores plugins' configure files
+MCDR_PLUGIN_ID = core_constant.PACKAGE_NAME
+MCDR_PLUGIN_VERSION = core_constant.VERSION
+
+# the directory inside MCDR working directory that stores plugins' configuration files
 PLUGIN_CONFIG_DIRECTORY = 'config'
 
 # The file prefix for a solo plugin (a single .py file)
 SOLO_PLUGIN_FILE_SUFFIX = '.py'
 
 # The file prefix for a packed plugin (a zipped file)
-PACKED_PLUGIN_FILE_SUFFIX = '.mcdr'
+PACKED_PLUGIN_FILE_SUFFIXES = ('.mcdr', '.pyz')
 
 # The name of the meta file inside a packed plugin
 PLUGIN_META_FILE = 'mcdreforged.plugin.json'
+PLUGIN_METADATA_SCHEMA_VERSION = 1
+
+# The name of the link file for a LinkedDirectoryPlugin
+LINK_DIRECTORY_PLUGIN_FILE_NAME = 'mcdreforged.linked_directory_plugin.json'
 
 # The name of the python package requirement file
 PLUGIN_REQUIREMENTS_FILE = 'requirements.txt'
